@@ -1,9 +1,16 @@
+# dépendances & artefacts
 node_modules/
 dist/
 coverage/
+
+# secrets & config locale
 .env
 .env.local
+
+# logs
 *.log
+
+# OS / éditeurs
 .DS_Store
 Thumbs.db
 .vscode/

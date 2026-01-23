@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
   let firebaseError = null;
 
   try {
-    const { isFirebaseReady, getFirebaseError } = require('../firebaseAdmin');
+    const { isFirebaseReady, getFirebaseError } = require('../firebaseadmin');
     firebaseStatus = isFirebaseReady() ? 'ready' : 'not_initialized';
     const err = getFirebaseError();
     if (err) {

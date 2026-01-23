@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('node:crypto');
 
 const User = require('../models/user');
-const { adminAuth } = require('../firebaseAdmin');
+const { adminAuth } = require('../firebaseadmin');
 
 const router = express.Router();
 

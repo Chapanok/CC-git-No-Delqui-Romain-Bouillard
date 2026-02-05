@@ -79,4 +79,82 @@ router.post('/select', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// 🔒 SÉCURITÉ: mock-upgrade DÉSACTIVÉ EN PRODUCTION
+// ============================================================
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/mock-upgrade', requireAuth, async (req, res) => {
+    try {
+      const { planId } = req.body || {};
+
+      if (!['pro', 'premium'].includes(planId)) {
+        return res.status(400).json({
+          ok: false,
+          error: 'invalid_plan',
+          message: 'Plan must be pro or premium'
+        });
+      }
+
+      const userId = req.user?.uid || req.user?.sub || req.user?._id;
+
+      await User.updateOne(
+        { _id: userId },
+        { $set: { plan: planId, isPremium: true } }
+      );
+
+      console.log(`[DEV ONLY] User ${userId} mock-upgraded to ${planId}`);
+
+      res.json({
+        ok: true,
+        plan: planId,
+        isPremium: true,
+        message: 'DEV ONLY: Mock payment OK'
+      });
+    } catch (e) {
+      console.error('[plans/mock-upgrade]', e);
+      res.status(500).json({ ok: false, message: 'Failed to upgrade plan' });
+    }
+  });
+}
+// ============================================================
+
+// ============================================================
+// 🧪 ENDPOINT DE TEST: Disponible tout le temps (pour Railway/tests)
+// ============================================================
+router.post('/test-upgrade', requireAuth, async (req, res) => {
+  try {
+    const { planId } = req.body || {};
+
+    if (!['pro', 'premium', 'free'].includes(planId)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_plan',
+        message: 'Plan must be free, pro or premium'
+      });
+    }
+
+    const userId = req.user?.uid || req.user?.sub || req.user?._id;
+
+    const isPremium = ['pro', 'premium'].includes(planId);
+
+    await User.updateOne(
+      { _id: userId },
+      { $set: { plan: planId, isPremium } }
+    );
+
+    console.log(`[TEST] User ${userId} upgraded to ${planId}`);
+
+    res.json({
+      ok: true,
+      plan: planId,
+      isPremium,
+      message: 'TEST: Plan updated successfully'
+    });
+  } catch (e) {
+    console.error('[plans/test-upgrade]', e);
+    res.status(500).json({ ok: false, message: 'Failed to upgrade plan' });
+  }
+});
+// ============================================================
+
 module.exports = router; // export direct du router (middleware function)

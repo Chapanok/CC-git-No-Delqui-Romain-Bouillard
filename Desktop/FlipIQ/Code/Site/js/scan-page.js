@@ -484,105 +484,30 @@ if (!requireAuth()) {
     }
   }
 
-  // --- NOUVEAU FLUX: Animation → Formulaire → Génération ---
+  // --- FLUX: Scan (anim thumbs) → État → ProductRefiner → Génération (anim plein écran) ---
   async function showLoadingAnimationThenForm() {
-    if (isBusy || !currentPhotos.length) return;
-
-    // Créer et afficher le modal d'animation PLEIN ÉCRAN
-    const animModal = document.createElement('div');
-    animModal.id = 'loadingAnimationModal';
-    animModal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 99999;
-    `;
-
-    const animContainer = document.createElement('div');
-    animContainer.style.cssText = `
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `;
-
-    const animImg = document.createElement('img');
-    animImg.src = '/img/listCreation.gif';
-    animImg.alt = 'Préparation de votre annonce...';
-    animImg.style.cssText = `
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-    `;
-
-    const animText = document.createElement('p');
-    animText.textContent = '';
-    animText.style.cssText = `
-      display: none;
-    `;
-
-    animContainer.appendChild(animImg);
-    animContainer.appendChild(animText);
-    animModal.appendChild(animContainer);
-    document.body.appendChild(animModal);
-
-    // Attendre 3 secondes pour que l'utilisateur voit l'animation
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Fermer le modal d'animation
-    animModal.remove();
-
-    // Afficher le modal de condition
-    if (!userInputData.condition) {
-      const c = await askCondition();
-      if (!c) {
-        // L'utilisateur a annulé
-        return;
-      }
-      userInputData.condition = c;
-    }
-
-    // Maintenant lancer le scan puis la génération
-    await performScanAndGeneration();
-  }
-
-  // Fonction qui fait le scan puis la génération
-  async function performScanAndGeneration() {
     if (isBusy || !currentPhotos.length) return;
     isBusy = true;
     setSendState('scanning');
+
+    // 1. SCAN avec animation sur les thumbnails
+    setThumbsLoading(true);
     if (dom.uploadFab) dom.uploadFab.classList.add('is-loading');
 
     try {
-      // 1. Faire le scan d'abord
-      const compressedFiles = await Promise.all(currentPhotos.map(f => compressImage(f)));
-      const fd = new FormData();
-      compressedFiles.forEach((f) => fd.append('images', f));
+      const scanResult = await doScanOnly();
+      lastScanResult = scanResult;
 
-      const json = await apiJSON('/api/ai/scan', { method: 'POST', body: fd });
-      lastScanResult = json;
-
-      if (json.identification && json.identification.label) {
-        const detectedName = json.identification.label;
-        if (dom.searchInput) {
-          dom.searchInput.value = detectedName;
-        }
+      if (scanResult?.identification?.label && dom.searchInput) {
+        dom.searchInput.value = scanResult.identification.label;
       }
 
+      setThumbsLoading(false);
       setSendState('ready');
-
-      // 2. Lancer la génération
-      await performGeneration();
 
     } catch (e) {
       console.error(e);
+      setThumbsLoading(false);
       if (e instanceof QuotaExceededError) {
         showQuotaModal();
         showToast('Quota épuisé', 'warn');
@@ -590,11 +515,45 @@ if (!requireAuth()) {
         showToast('Erreur lors de l\'analyse', 'error');
       }
       setSendState('idle');
+      isBusy = false;
+      if (dom.uploadFab) dom.uploadFab.classList.remove('is-loading');
+      refreshQuota();
+      return;
+    }
+
+    // 2. Modal état (condition)
+    if (!userInputData.condition) {
+      const c = await askCondition();
+      if (!c) {
+        isBusy = false;
+        setSendState('idle');
+        if (dom.uploadFab) dom.uploadFab.classList.remove('is-loading');
+        return;
+      }
+      userInputData.condition = c;
+    }
+
+    // 3. performGeneration affiche ProductRefiner puis lance la génération avec anim plein écran
+    try {
+      await performGeneration();
+    } catch (e) {
+      console.error(e);
+      setSendState('idle');
     } finally {
       isBusy = false;
       if (dom.uploadFab) dom.uploadFab.classList.remove('is-loading');
       refreshQuota();
     }
+  }
+
+  // Fonction qui fait UNIQUEMENT le scan (pas la génération)
+  async function doScanOnly() {
+    const compressedFiles = await Promise.all(currentPhotos.map(f => compressImage(f)));
+    const fd = new FormData();
+    compressedFiles.forEach((f) => fd.append('images', f));
+
+    const json = await apiJSON('/api/ai/scan', { method: 'POST', body: fd });
+    return json;
   }
 
   // --- SCAN (ancienne version, gardée pour compatibilité) ---
@@ -1229,10 +1188,28 @@ if (!requireAuth()) {
     await executeGenerationWithAnimation(basePayload, null, null, null);
   }
 
-  // Fonction séparée pour l'animation + appel API
+  // Fonction séparée pour l'animation plein écran + appel API génération
   async function executeGenerationWithAnimation(payload, specsString, forcedTitle, forcedPrice) {
-    // MAINTENANT on lance l'animation
-    setThumbsLoading(true);
+    // Animation plein écran listCreation.gif pendant la génération
+    const animModal = document.createElement('div');
+    animModal.id = 'generationAnimationModal';
+    animModal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+    `;
+    const animImg = document.createElement('img');
+    animImg.src = '/img/listCreation.gif';
+    animImg.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+    animModal.appendChild(animImg);
+    document.body.appendChild(animModal);
 
     try {
       const endpoint = lastScanResult ? '/api/ai/listing' : '/api/ai/describe';
@@ -1261,10 +1238,15 @@ if (!requireAuth()) {
           json.description = specsString + ".\n\n" + json.description;
       }
 
+      // Fermer l'animation plein écran
+      animModal.remove();
+
       displayFinalResults(json, payload);
     } catch (e) {
+      // Fermer l'animation plein écran en cas d'erreur aussi
+      animModal.remove();
+
       console.error('❌ Erreur Génération:', e);
-      // Gérer erreur quota épuisé
       if (e instanceof QuotaExceededError) {
         showQuotaModal();
         showToast('Quota épuisé', 'warn');
@@ -1273,8 +1255,6 @@ if (!requireAuth()) {
       }
       setSendState('ready');
       isBusy = false;
-      setThumbsLoading(false);
-      // Rafraîchir le quota dans la navbar
       refreshQuota();
     }
   }

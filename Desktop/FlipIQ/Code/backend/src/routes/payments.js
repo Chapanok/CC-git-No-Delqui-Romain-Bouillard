@@ -63,26 +63,36 @@ async function activatePlan(userId, planId) {
   );
 }
 
-// ===== Stripe Handler (Extrait pour export) =====
-// 💡 CORRECTION ICI : On crée une fonction nommée pour l'exporter
+// ===== Stripe Webhook Handler =====
+// 🔒 SÉCURITÉ: Signature OBLIGATOIRE en production
 async function stripeWebhookHandler(req, res) {
   try {
     const sig = req.headers['stripe-signature'];
     const stripe = require('stripe')(STRIPE_SECRET_KEY);
-    
-    // req.body est ici un Buffer (grâce au middleware express.raw dans app.js)
+    const isProd = NODE_ENV === 'production';
+
+    // 🔒 En production, la signature est OBLIGATOIRE
+    if (isProd && !STRIPE_WEBHOOK_SECRET) {
+      console.error('❌ STRIPE_WEBHOOK_SECRET manquant en production!');
+      return res.status(500).send('Webhook configuration error');
+    }
+
     let event;
 
     if (STRIPE_WEBHOOK_SECRET) {
+      // Vérification signature (mode normal)
       try {
         event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
       } catch (err) {
-        console.error(`⚠️  Webhook Signature Error: ${err.message}`);
+        console.error(`⚠️ Webhook Signature Error: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
       }
-    } else {
-      // Fallback sans signature (déconseillé en prod mais utile en test local sans CLI)
+    } else if (!isProd) {
+      // Fallback UNIQUEMENT en développement
+      console.warn('⚠️ [DEV] Webhook sans vérification signature');
       event = JSON.parse(req.body.toString());
+    } else {
+      return res.status(400).send('Signature required');
     }
 
     if (event.type === 'checkout.session.completed') {
@@ -209,24 +219,45 @@ async function pscDetails(id) {
 router.post('/checkout', requireAuth, async (req, res) => {
   try {
     const { provider, plan } = req.body || {};
-    if (!PLAN_MAP[plan]) return res.status(400).json({ error: 'invalid_plan' });
+    if (!PLAN_MAP[plan]) return res.status(400).json({ error: 'invalid_plan', message: 'Plan invalide. Utilisez "pro" ou "premium".' });
+
+    const userId = req.user?.uid || req.user?.sub || req.user?._id;
+    const userEmail = req.user?.email || undefined;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'user_not_found', message: 'Utilisateur non identifié.' });
+    }
 
     if (provider === 'stripe') {
-      const s = await stripeCheckout({ plan, userId: req.user.uid, userEmail: req.user.email });
+      if (!STRIPE_SECRET_KEY) {
+        console.error('[payments] STRIPE_SECRET_KEY manquant !');
+        return res.status(503).json({ error: 'stripe_not_configured', message: 'Le paiement par carte n\'est pas encore disponible. Contactez le support.' });
+      }
+      if (!PLAN_MAP[plan]?.stripePrice) {
+        console.error(`[payments] STRIPE_PRICE manquant pour le plan "${plan}" !`);
+        return res.status(503).json({ error: 'stripe_price_missing', message: 'Le prix Stripe n\'est pas configuré pour ce plan. Contactez le support.' });
+      }
+      const s = await stripeCheckout({ plan, userId, userEmail });
       return res.json({ url: s.url });
     }
     if (provider === 'paypal') {
-      const p = await paypalCreateOrder({ plan, userId: req.user.uid });
+      if (!PAYPAL_CLIENT_ID || !PAYPAL_SECRET) {
+        return res.status(503).json({ error: 'paypal_not_configured', message: 'PayPal n\'est pas encore disponible.' });
+      }
+      const p = await paypalCreateOrder({ plan, userId });
       return res.json({ url: p.approve_url });
     }
     if (provider === 'paysafecard') {
-      const p = await pscCreate({ plan, userId: req.user.uid });
+      if (!PAYSAFECARD_API_KEY) {
+        return res.status(503).json({ error: 'psc_not_configured', message: 'Paysafecard n\'est pas encore disponible.' });
+      }
+      const p = await pscCreate({ plan, userId });
       return res.json({ url: p.auth_url, psc_payment_id: p.id });
     }
-    return res.status(400).json({ error: 'invalid_provider' });
+    return res.status(400).json({ error: 'invalid_provider', message: 'Moyen de paiement invalide.' });
   } catch (e) {
     console.error('[payments/checkout]', e);
-    return res.status(500).json({ error: 'server_error' });
+    return res.status(500).json({ error: 'server_error', message: e.message || 'Erreur serveur lors du paiement.' });
   }
 });
 

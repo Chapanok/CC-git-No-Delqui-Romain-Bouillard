@@ -105,13 +105,10 @@
     document.body.style.overflow = '';
   }
 
-  // Handle Payment
-  // ============================================================
-  // 🧪 TEST MODE PAYMENT ALWAYS OK - À MODIFIER EN PRODUCTION
-  // ============================================================
+  // Handle Payment - PRODUCTION MODE avec Stripe Checkout
   async function handlePayment() {
     if (!selectedPlan) {
-      showToast('Please select a plan', 'error');
+      showToast('Veuillez sélectionner un plan', 'error');
       return;
     }
 
@@ -120,58 +117,62 @@
       paymentMethod: selectedPayment
     });
 
-    // Close modal
-    closePaymentModal();
+    // Disable button and show loading
+    const confirmBtn = document.getElementById('confirmPayment');
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Redirection...';
+    }
 
-    // Show loading state
-    showToast('Traitement du paiement...', 'default');
+    showToast('Redirection vers le paiement...', 'default');
 
     try {
-      // Récupérer le token d'auth
       const token = localStorage.getItem('flipiq_token');
-
-      // ============================================================
-      // TEST MODE: Appeler l'API test qui retourne toujours OK
-      // En production, remplacer par le vrai endpoint de paiement
-      // ============================================================
       const API_BASE = (window.API_BASE || 'https://api.flipiqapp.com').replace(/\/$/, '');
 
-      const response = await fetch(`${API_BASE}/api/plans/test-upgrade`, {
+      // Appeler l'API de checkout qui retourne l'URL Stripe/PayPal
+      const response = await fetch(`${API_BASE}/api/payments/checkout`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : ''
         },
-        body: JSON.stringify({ planId: selectedPlan })
+        body: JSON.stringify({
+          provider: selectedPayment, // 'stripe', 'paypal', ou 'paysafecard'
+          plan: selectedPlan         // 'premium' ou 'pro'
+        })
       });
 
       const data = await response.json();
 
-      if (response.ok && data.ok) {
-        showToast('Paiement réussi ! Mise à niveau de votre compte...', 'success');
-
-        // Mettre à jour le compteur dans la navbar immédiatement
-        const counterEl = document.getElementById('quotaCounterValue');
-        if (counterEl) {
-          counterEl.textContent = '∞';
-        }
-
-        // Rediriger vers scan après 2 secondes
-        setTimeout(() => {
-          window.location.href = '/scan?upgrade=success';
-        }, 2000);
-      } else {
-        throw new Error(data.message || 'Erreur lors du paiement');
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Erreur lors de la création du paiement');
       }
+
+      // Rediriger vers la page de paiement (Stripe Checkout, PayPal, etc.)
+      if (data.url) {
+        window.location.href = data.url;
+      } else if (data.psc_payment_id) {
+        // Paysafecard: stocker l'ID pour vérifier le statut après
+        sessionStorage.setItem('psc_payment_id', data.psc_payment_id);
+        sessionStorage.setItem('psc_plan', selectedPlan);
+        if (data.url) window.location.href = data.url;
+      } else {
+        throw new Error('URL de paiement non reçue');
+      }
+
     } catch (error) {
       console.error('Payment error:', error);
       showToast('Erreur: ' + error.message, 'error');
+
+      // Re-enable button
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Payer';
+      }
     }
   }
-  // ============================================================
-  // FIN TEST MODE PAYMENT
-  // ============================================================
 
   // Get Plan Info
   function getPlanInfo(plan) {

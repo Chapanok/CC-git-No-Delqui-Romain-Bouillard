@@ -80,10 +80,29 @@ app.use(
   })
 );
 
-// helmet (desactive ce qui peut casser les images externes)
+// 🔒 SÉCURITÉ: Headers HTTP via Helmet
 app.use(
   helmet({
-    crossOriginResourcePolicy: false
+    crossOriginResourcePolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://www.gstatic.com", "https://apis.google.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        connectSrc: ["'self'", "https://api.flipiqapp.com", "https://*.firebaseio.com", "https://*.googleapis.com", "wss://*.firebaseio.com"],
+        frameSrc: ["'self'", "https://*.stripe.com", "https://*.paypal.com"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: []
+      }
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true
+    },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
   })
 );
 
@@ -98,6 +117,23 @@ app.use('/api/', apiLimiter);
 
 // compression
 app.use(compression());
+
+// ====================================================================
+// 2.5 STRIPE WEBHOOK (AVANT le body parser JSON !)
+// ====================================================================
+// Le webhook Stripe DOIT recevoir le body brut pour vérifier la signature
+app.post(
+  '/api/payments/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  function (req, res) {
+    // Charger le handler depuis payments.js
+    const paymentsRoute = require('./routes/payments');
+    if (typeof paymentsRoute.stripeWebhookHandler === 'function') {
+      return paymentsRoute.stripeWebhookHandler(req, res);
+    }
+    return res.status(500).json({ error: 'Webhook handler not found' });
+  }
+);
 
 // body / cookies
 app.use(

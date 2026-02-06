@@ -488,29 +488,27 @@ if (!requireAuth()) {
   async function showLoadingAnimationThenForm() {
     if (isBusy || !currentPhotos.length) return;
 
-    // Créer et afficher le modal d'animation
+    // Créer et afficher le modal d'animation PLEIN ÉCRAN
     const animModal = document.createElement('div');
     animModal.id = 'loadingAnimationModal';
     animModal.style.cssText = `
       position: fixed;
       top: 0;
       left: 0;
-      width: 100%;
+      width: 100vw;
       height: 100vh;
-      background: rgba(0, 0, 0, 0.85);
+      background: #000;
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 9999;
-      backdrop-filter: blur(10px);
+      z-index: 99999;
     `;
 
     const animContainer = document.createElement('div');
     animContainer.style.cssText = `
-      max-width: 90%;
-      max-height: 80vh;
+      width: 100%;
+      height: 100%;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
     `;
@@ -519,20 +517,15 @@ if (!requireAuth()) {
     animImg.src = '/img/listCreation.gif';
     animImg.alt = 'Préparation de votre annonce...';
     animImg.style.cssText = `
-      max-width: 100%;
-      max-height: 70vh;
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     `;
 
     const animText = document.createElement('p');
-    animText.textContent = 'Préparation de votre annonce...';
+    animText.textContent = '';
     animText.style.cssText = `
-      color: white;
-      font-size: 1.2rem;
-      font-weight: 600;
-      margin-top: 24px;
-      text-align: center;
+      display: none;
     `;
 
     animContainer.appendChild(animImg);
